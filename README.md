@@ -1,6 +1,6 @@
 # OpenClaw on Azure
 
-Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a cost-effective Azure VM with Signal as the secure chat client.
+Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a cost-effective Azure VM with GitHub Copilot as the LLM provider.
 
 ## 💰 Estimated Cost
 
@@ -11,7 +11,7 @@ Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a c
 | 16 GB data disk (Standard_LRS) | ~$0.80/mo |
 | Public IP (Standard, static) | ~$3.60/mo |
 | **Subtotal (infra)** | **~$21/mo** |
-| LLM API usage | $5–60/mo (varies) |
+| LLM: GitHub Copilot subscription | Included in your existing plan |
 | Auto-shutdown at 19:00 UTC | Saves ~60% on compute |
 
 > With auto-shutdown enabled, effective compute cost drops to ~$6–8/mo.
@@ -22,8 +22,7 @@ Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a c
 
 1. **Azure CLI** installed ([install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli))
 2. **SSH key pair** (`.pem` or `id_rsa`)
-3. **LLM API key** (Anthropic or OpenAI)
-4. **Phone number** for Signal registration (dedicated number recommended)
+3. **GitHub Copilot subscription** (Individual, Business, or Enterprise)
 
 ---
 
@@ -45,7 +44,6 @@ az deployment sub create \
   --template-file main.bicep \
   --parameters \
     sshPublicKey="$(ssh-keygen -y -f ~/.ssh/your-key-pair.pem)" \
-    llmApiKey="your-api-key-here" \
     allowedSshCidr="$(curl -s ifconfig.me)/32"
 ```
 
@@ -73,51 +71,23 @@ chmod +x ~/openclaw/configure.sh
 ```
 
 This will:
-- Prompt for your LLM API key and provider
 - Create the Docker Compose configuration
 - Pull and start the OpenClaw container
+- Guide you through GitHub Copilot authentication
 
----
+### 5. Chat with OpenClaw
 
-## 📱 Signal Registration
-
-After OpenClaw is running, register your Signal number on the VM:
+Use the built-in terminal UI:
 
 ```bash
 ssh openclaw
-
-# 1. Register (you'll receive an SMS code)
-signal-cli -a +YOUR_PHONE_NUMBER register
-
-# 2. Verify with the received code
-signal-cli -a +YOUR_PHONE_NUMBER verify 123-456
-
-# 3. Verify it works
-signal-cli -a +YOUR_PHONE_NUMBER send -m "Hello from OpenClaw!" +YOUR_PHONE_NUMBER
+sudo docker exec -it openclaw openclaw tui --local
 ```
 
-Then configure OpenClaw to use Signal as its chat transport by editing the OpenClaw config:
+Or add a chat channel (Telegram, Discord, etc.):
 
 ```bash
-# Edit the OpenClaw configuration to add Signal
-nano /mnt/openclaw-data/openclaw/config.yaml
-```
-
-Add the Signal section:
-
-```yaml
-channels:
-  signal:
-    enabled: true
-    phone_number: "+YOUR_PHONE_NUMBER"
-    signal_cli_path: "/usr/local/bin/signal-cli"
-    data_dir: "/signal-cli-data"
-```
-
-Restart OpenClaw:
-
-```bash
-cd ~/openclaw && docker compose restart
+sudo docker exec -it openclaw openclaw channels add --channel telegram --bot-token YOUR_BOT_TOKEN
 ```
 
 ---
@@ -139,13 +109,13 @@ az vm deallocate -g rg-openclaw -n openclaw-vm
 ### Check OpenClaw status
 
 ```bash
-ssh openclaw "docker ps"
+ssh openclaw "sudo docker ps"
 ```
 
 ### View OpenClaw logs
 
 ```bash
-ssh openclaw "docker logs openclaw --tail 50"
+ssh openclaw "sudo docker logs openclaw --tail 50"
 ```
 
 > The VM auto-stops at **19:00 UTC** daily. Start it again each morning.
@@ -170,12 +140,11 @@ az group delete --name rg-openclaw --yes --no-wait
 |---|---|
 | `main.bicep` | Subscription-level orchestrator (RG + VM module) |
 | `openclaw-vm.bicep` | VM, networking, cloud-init, auto-shutdown |
-| `configure.sh` | Post-deploy interactive setup (LLM key, Docker, Signal) |
+| `configure.sh` | Post-deploy interactive setup (Docker, OpenClaw) |
 
 ## 🔒 Security Notes
 
 - SSH restricted to your IP via NSG (`allowedSshCidr`)
-- Signal provides end-to-end encryption for all messages
-- LLM API key is stored only on the VM, never in Bicep state
+- LLM powered by GitHub Copilot (no API keys to manage)
 - OpenClaw web UI bound to `127.0.0.1` only (no public exposure)
 - Data disk persists separately from VM lifecycle

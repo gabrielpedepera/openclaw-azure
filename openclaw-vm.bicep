@@ -177,7 +177,6 @@ runcmd:
 
   # Create OpenClaw data directories on persistent disk
   - mkdir -p /mnt/openclaw-data/openclaw
-  - mkdir -p /mnt/openclaw-data/signal-cli
   - chown -R 1000:1000 /mnt/openclaw-data
 
   # Write LLM config (populated post-deploy via SSH)
@@ -187,7 +186,6 @@ runcmd:
     # OpenClaw Environment Configuration
     # LLM: GitHub Copilot (configured post-deploy via `openclaw models auth login-github-copilot`)
     OPENCLAW_DATA_DIR=/mnt/openclaw-data/openclaw
-    SIGNAL_CLI_DATA_DIR=/mnt/openclaw-data/signal-cli
     ENVEOF
   - chown -R ${adminUsername}:${adminUsername} /home/${adminUsername}/openclaw
 
@@ -197,14 +195,4 @@ runcmd:
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
     apt-get update && apt-get install -y gh
 
-  # Install signal-cli (latest release)
-  - |
-    SIGNAL_CLI_VERSION=$(curl -s https://api.github.com/repos/AsamK/signal-cli/releases/latest | jq -r '.tag_name' | sed 's/v//')
-    curl -L -o /tmp/signal-cli.tar.gz "https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}-Linux.tar.gz"
-    tar xf /tmp/signal-cli.tar.gz -C /opt
-    ln -sf /opt/signal-cli-${SIGNAL_CLI_VERSION}/bin/signal-cli /usr/local/bin/signal-cli
-    rm /tmp/signal-cli.tar.gz
-
-  # Install Java runtime (required by signal-cli)
-  - apt-get install -y default-jre-headless
 '''

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# configure.sh — Post-deploy configuration for OpenClaw + Signal
+# configure.sh — Post-deploy configuration for OpenClaw
 # Run this on the VM after deployment to set up services.
 set -euo pipefail
 
 OPENCLAW_DIR="$HOME/openclaw"
-ENV_FILE="$OPENCLAW_DIR/.env"
 COMPOSE_FILE="$OPENCLAW_DIR/docker-compose.yml"
 
 echo "═══════════════════════════════════════════════"
@@ -15,64 +14,67 @@ echo "════════════════════════�
 cat > "$COMPOSE_FILE" <<'COMPOSE'
 services:
   openclaw:
-    image: ghcr.io/steipete/openclaw:latest
+    image: ghcr.io/openclaw/openclaw:latest
     container_name: openclaw
     restart: unless-stopped
-    env_file: .env
-    volumes:
-      - ${OPENCLAW_DATA_DIR:-/mnt/openclaw-data/openclaw}:/data
-      - ${SIGNAL_CLI_DATA_DIR:-/mnt/openclaw-data/signal-cli}:/signal-cli-data
     ports:
       - "127.0.0.1:3000:3000"
+    volumes:
+      - /mnt/openclaw-data/openclaw:/home/node/.openclaw
+    mem_limit: 2g
 COMPOSE
 echo "✓ Docker Compose file created"
 
-# ── 2. Start OpenClaw ────────────────────────────────────────────────
+# ── 2. Run OpenClaw setup ────────────────────────────────────────────
 echo ""
-echo "Pulling and starting OpenClaw..."
+echo "Running OpenClaw setup..."
 cd "$OPENCLAW_DIR"
-docker compose pull
-docker compose up -d
+sudo docker compose pull
+sudo docker run --rm \
+  -v /mnt/openclaw-data/openclaw:/home/node/.openclaw \
+  ghcr.io/openclaw/openclaw:latest \
+  openclaw setup
+echo "✓ OpenClaw configured"
+
+# ── 3. Generate gateway token and start ──────────────────────────────
+GATEWAY_TOKEN=$(openssl rand -hex 32)
+cat > "$COMPOSE_FILE" <<EOF
+services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - /mnt/openclaw-data/openclaw:/home/node/.openclaw
+    environment:
+      - OPENCLAW_GATEWAY_TOKEN=${GATEWAY_TOKEN}
+    mem_limit: 2g
+EOF
+
+sudo docker compose up -d
 echo "✓ OpenClaw is running"
 
-# ── 3. GitHub Copilot LLM Auth ──────────────────────────────────────
+# ── 4. Next steps ───────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════"
-echo "  Step 1: Authenticate GitHub Copilot as LLM"
+echo "  Next: Authenticate GitHub Copilot as LLM"
 echo "═══════════════════════════════════════════════"
 echo ""
-echo "  Run the following command and follow the browser flow:"
+echo "  Run the following and follow the browser flow:"
 echo ""
-echo "    openclaw models auth login-github-copilot"
+echo "    sudo docker exec -it openclaw openclaw models auth login-github-copilot"
 echo ""
 echo "  Then set your preferred model:"
 echo ""
-echo "    openclaw models set github-copilot/claude-sonnet-4.5"
+echo "    sudo docker exec -it openclaw openclaw models set github-copilot/claude-sonnet-4.5"
 echo ""
-
-# ── 4. Signal Setup ─────────────────────────────────────────────────
-echo "═══════════════════════════════════════════════"
-echo "  Step 2: Register your Signal number"
-echo "═══════════════════════════════════════════════"
+echo "  To chat with OpenClaw:"
 echo ""
-echo "  1. Register your phone number:"
-echo "     signal-cli -a +YOUR_PHONE_NUMBER register"
+echo "    sudo docker exec -it openclaw openclaw tui --local"
 echo ""
-echo "  2. Verify with the code you receive:"
-echo "     signal-cli -a +YOUR_PHONE_NUMBER verify CODE"
+echo "  To add a chat channel (e.g., Telegram):"
 echo ""
-echo "  3. Test it works:"
-echo "     signal-cli -a +YOUR_PHONE_NUMBER send -m 'Hello from OpenClaw!' +YOUR_PHONE_NUMBER"
-echo ""
-echo "  4. Configure OpenClaw to use Signal — edit /mnt/openclaw-data/openclaw/config.yaml:"
-echo ""
-echo '     channels:'
-echo '       signal:'
-echo '         enabled: true'
-echo '         phone_number: "+YOUR_PHONE_NUMBER"'
-echo '         signal_cli_path: "/usr/local/bin/signal-cli"'
-echo '         data_dir: "/signal-cli-data"'
-echo ""
-echo "  5. Restart OpenClaw:"
-echo "     cd ~/openclaw && docker compose restart"
+echo "    sudo docker exec -it openclaw openclaw channels add --channel telegram --bot-token YOUR_BOT_TOKEN"
 echo ""
