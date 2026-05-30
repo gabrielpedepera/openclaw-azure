@@ -149,7 +149,7 @@ packages:
   - git
   - curl
   - docker.io
-  - docker-compose
+  - docker-compose-v2
   - jq
   - unzip
 

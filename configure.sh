@@ -56,6 +56,14 @@ EOF
 sudo docker compose up -d
 echo "✓ OpenClaw is running"
 
+# ── 4. Fix data disk permissions ─────────────────────────────────────
+echo ""
+echo "Fixing data disk permissions..."
+sudo chown -R 1000:1000 /mnt/openclaw-data/openclaw
+sudo chmod -R 700 /mnt/openclaw-data/openclaw/agents 2>/dev/null || true
+sudo docker compose restart
+echo "✓ Permissions fixed"
+
 # ── 4. Next steps ───────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════"
@@ -74,7 +82,12 @@ echo "  To chat with OpenClaw:"
 echo ""
 echo "    sudo docker exec -it openclaw openclaw tui --local"
 echo ""
-echo "  To add a chat channel (e.g., Telegram):"
+echo "  To add Telegram as a chat channel:"
 echo ""
-echo "    sudo docker exec -it openclaw openclaw channels add --channel telegram --bot-token YOUR_BOT_TOKEN"
+echo "    sudo docker exec openclaw openclaw channels add --channel telegram --token YOUR_BOT_TOKEN"
+echo "    sudo docker compose -f ~/openclaw/docker-compose.yml restart"
+echo ""
+echo "  Then message your bot on Telegram and approve the pairing code:"
+echo ""
+echo "    sudo docker exec openclaw openclaw pairing approve telegram YOUR_CODE"
 echo ""

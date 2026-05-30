@@ -1,6 +1,6 @@
 # OpenClaw on Azure
 
-Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a cost-effective Azure VM with GitHub Copilot as the LLM provider.
+Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a cost-effective Azure VM with GitHub Copilot as the LLM provider and Telegram as the chat client.
 
 ## 💰 Estimated Cost
 
@@ -21,8 +21,9 @@ Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a c
 ## 🛠 Prerequisites
 
 1. **Azure CLI** installed ([install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli))
-2. **SSH key pair** (`.pem` or `id_rsa`)
+2. **SSH key pair** (`.pem` or `id_ed25519`)
 3. **GitHub Copilot subscription** (Individual, Business, or Enterprise)
+4. **Telegram bot token** from [@BotFather](https://t.me/BotFather)
 
 ---
 
@@ -43,7 +44,7 @@ az deployment sub create \
   --location northeurope \
   --template-file main.bicep \
   --parameters \
-    sshPublicKey="$(ssh-keygen -y -f ~/.ssh/your-key-pair.pem)" \
+    sshPublicKey="$(cat ~/.ssh/openclaw-key.pub)" \
     allowedSshCidr="$(curl -s ifconfig.me)/32"
 ```
 
@@ -57,7 +58,7 @@ Add to `~/.ssh/config`:
 Host openclaw
     HostName openclaw-vm.northeurope.cloudapp.azure.com
     User gabrielpedepera
-    IdentityFile ~/.ssh/your-key-pair.pem
+    IdentityFile ~/.ssh/openclaw-key
 ```
 
 ### 4. Post-Deploy Setup
@@ -71,23 +72,55 @@ chmod +x ~/openclaw/configure.sh
 ```
 
 This will:
-- Create the Docker Compose configuration
-- Pull and start the OpenClaw container
-- Guide you through GitHub Copilot authentication
+- Pull the OpenClaw Docker image
+- Run initial setup (config, workspace, sessions)
+- Generate a gateway token and start the container
 
-### 5. Chat with OpenClaw
+### 5. Fix Data Disk Permissions
 
-Use the built-in terminal UI:
+The Azure data disk mounts with permissive defaults. Fix permissions so OpenClaw's auth store works correctly:
 
 ```bash
 ssh openclaw
-sudo docker exec -it openclaw openclaw tui --local
+sudo chown -R 1000:1000 /mnt/openclaw-data/openclaw
+sudo chmod -R 700 /mnt/openclaw-data/openclaw/agents
+sudo docker compose -f ~/openclaw/docker-compose.yml restart
 ```
 
-Or add a chat channel (Telegram, Discord, etc.):
+### 6. Authenticate GitHub Copilot as LLM
 
 ```bash
-sudo docker exec -it openclaw openclaw channels add --channel telegram --bot-token YOUR_BOT_TOKEN
+ssh openclaw
+sudo docker exec -it openclaw openclaw models auth login-github-copilot
+```
+
+Follow the browser-based device login flow to link your GitHub Copilot subscription.
+
+### 7. Add Telegram Channel
+
+```bash
+ssh openclaw
+sudo docker exec openclaw openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
+sudo docker compose -f ~/openclaw/docker-compose.yml restart
+```
+
+Then open Telegram, message your bot, and **approve the pairing code** it sends you:
+
+```bash
+sudo docker exec openclaw openclaw pairing approve telegram YOUR_PAIRING_CODE
+```
+
+---
+
+## 💬 Chatting with OpenClaw
+
+### Via Telegram (recommended)
+Message your bot on Telegram — OpenClaw responds directly.
+
+### Via Terminal UI
+```bash
+ssh openclaw
+sudo docker exec -it openclaw openclaw tui --local
 ```
 
 ---
@@ -140,7 +173,7 @@ az group delete --name rg-openclaw --yes --no-wait
 |---|---|
 | `main.bicep` | Subscription-level orchestrator (RG + VM module) |
 | `openclaw-vm.bicep` | VM, networking, cloud-init, auto-shutdown |
-| `configure.sh` | Post-deploy interactive setup (Docker, OpenClaw) |
+| `configure.sh` | Post-deploy setup (Docker, OpenClaw init, gateway token) |
 
 ## 🔒 Security Notes
 
@@ -148,3 +181,4 @@ az group delete --name rg-openclaw --yes --no-wait
 - LLM powered by GitHub Copilot (no API keys to manage)
 - OpenClaw web UI bound to `127.0.0.1` only (no public exposure)
 - Data disk persists separately from VM lifecycle
+- Agent auth directory must have `700` permissions (not world-readable)
