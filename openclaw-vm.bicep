@@ -1,0 +1,209 @@
+param location string
+param vmName string
+param adminUsername string
+
+@secure()
+param sshPublicKey string
+
+@secure()
+param llmApiKey string
+
+param llmProvider string
+param allowedSshCidr string
+
+// ── Network Security Group ──────────────────────────────────────────
+resource nsg 'Microsoft.Network/networkSecurityGroups@2023-09-01' = {
+  name: '${vmName}-nsg'
+  location: location
+  properties: {
+    securityRules: [
+      {
+        name: 'AllowSSH'
+        properties: {
+          priority: 1000
+          protocol: 'Tcp'
+          access: 'Allow'
+          direction: 'Inbound'
+          sourceAddressPrefix: allowedSshCidr
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '22'
+        }
+      }
+    ]
+  }
+}
+
+// ── Virtual Network ─────────────────────────────────────────────────
+resource vnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
+  name: '${vmName}-vnet'
+  location: location
+  properties: {
+    addressSpace: { addressPrefixes: ['10.1.0.0/16'] }
+    subnets: [{ name: 'default', properties: { addressPrefix: '10.1.1.0/24' } }]
+  }
+}
+
+// ── Public IP ───────────────────────────────────────────────────────
+resource pip 'Microsoft.Network/publicIPAddresses@2023-09-01' = {
+  name: '${vmName}-ip'
+  location: location
+  sku: { name: 'Standard' }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+    dnsSettings: {
+      domainNameLabel: 'openclaw-vm'
+    }
+  }
+}
+
+// ── Network Interface ───────────────────────────────────────────────
+resource nic 'Microsoft.Network/networkInterfaces@2023-09-01' = {
+  name: '${vmName}-nic'
+  location: location
+  properties: {
+    networkSecurityGroup: { id: nsg.id }
+    ipConfigurations: [
+      {
+        name: 'ipconfig1'
+        properties: {
+          subnet: { id: vnet.properties.subnets[0].id }
+          publicIPAddress: { id: pip.id }
+        }
+      }
+    ]
+  }
+}
+
+// ── Virtual Machine ─────────────────────────────────────────────────
+resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = {
+  name: vmName
+  location: location
+  properties: {
+    hardwareProfile: { vmSize: 'Standard_B2s' }
+    securityProfile: {
+      securityType: 'TrustedLaunch'
+      uefiSettings: { secureBootEnabled: true, vTpmEnabled: true }
+    }
+    storageProfile: {
+      imageReference: {
+        publisher: 'canonical'
+        offer: 'ubuntu-24_04-lts'
+        sku: 'server'
+        version: 'latest'
+      }
+      osDisk: {
+        createOption: 'FromImage'
+        diskSizeGB: 30
+        managedDisk: { storageAccountType: 'Standard_LRS' }
+        deleteOption: 'Delete'
+      }
+      dataDisks: [
+        {
+          lun: 0
+          name: '${vmName}-data'
+          createOption: 'Empty'
+          diskSizeGB: 16
+          managedDisk: { storageAccountType: 'Standard_LRS' }
+          deleteOption: 'Detach'
+        }
+      ]
+    }
+    osProfile: {
+      computerName: vmName
+      adminUsername: adminUsername
+      linuxConfiguration: {
+        disablePasswordAuthentication: true
+        ssh: {
+          publicKeys: [
+            {
+              path: '/home/${adminUsername}/.ssh/authorized_keys'
+              keyData: sshPublicKey
+            }
+          ]
+        }
+      }
+      customData: base64(cloudInit)
+    }
+    networkProfile: {
+      networkInterfaces: [{ id: nic.id, properties: { deleteOption: 'Delete' } }]
+    }
+  }
+}
+
+// ── Auto-Shutdown (19:00 UTC) ───────────────────────────────────────
+resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = {
+  name: 'shutdown-computevm-${vmName}'
+  location: location
+  properties: {
+    status: 'Enabled'
+    taskType: 'ComputeVmShutdownTask'
+    dailyRecurrence: { time: '1900' }
+    timeZoneId: 'UTC'
+    targetResourceId: vm.id
+    notificationSettings: { status: 'Disabled' }
+  }
+}
+
+// ── Cloud-Init ──────────────────────────────────────────────────────
+var cloudInit = '''
+#cloud-config
+package_update: true
+packages:
+  - git
+  - curl
+  - docker.io
+  - docker-compose
+  - jq
+  - unzip
+
+disk_setup:
+  /dev/disk/azure/scsi1/lun0:
+    table_type: gpt
+    layout: true
+    overwrite: false
+
+fs_setup:
+  - label: openclawdata
+    filesystem: ext4
+    device: /dev/disk/azure/scsi1/lun0
+    partition: auto
+    overwrite: false
+
+mounts:
+  - ["/dev/disk/azure/scsi1/lun0-part1", "/mnt/openclaw-data", "ext4", "defaults,nofail", "0", "2"]
+
+runcmd:
+  # Enable Docker
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker ${adminUsername}
+
+  # Create OpenClaw data directories on persistent disk
+  - mkdir -p /mnt/openclaw-data/openclaw
+  - mkdir -p /mnt/openclaw-data/signal-cli
+  - chown -R 1000:1000 /mnt/openclaw-data
+
+  # Write LLM config (populated post-deploy via SSH)
+  - mkdir -p /home/${adminUsername}/openclaw
+  - |
+    cat > /home/${adminUsername}/openclaw/.env <<'ENVEOF'
+    # OpenClaw Environment Configuration
+    # LLM API key and provider are configured post-deploy for security.
+    # Run: ./configure.sh to set them up.
+    OPENCLAW_DATA_DIR=/mnt/openclaw-data/openclaw
+    SIGNAL_CLI_DATA_DIR=/mnt/openclaw-data/signal-cli
+    ENVEOF
+  - chown -R ${adminUsername}:${adminUsername} /home/${adminUsername}/openclaw
+
+  # Install signal-cli (latest release)
+  - |
+    SIGNAL_CLI_VERSION=$(curl -s https://api.github.com/repos/AsamK/signal-cli/releases/latest | jq -r '.tag_name' | sed 's/v//')
+    curl -L -o /tmp/signal-cli.tar.gz "https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}-Linux.tar.gz"
+    tar xf /tmp/signal-cli.tar.gz -C /opt
+    ln -sf /opt/signal-cli-${SIGNAL_CLI_VERSION}/bin/signal-cli /usr/local/bin/signal-cli
+    rm /tmp/signal-cli.tar.gz
+
+  # Install Java runtime (required by signal-cli)
+  - apt-get install -y default-jre-headless
+'''
