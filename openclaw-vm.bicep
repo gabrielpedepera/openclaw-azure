@@ -5,10 +5,6 @@ param adminUsername string
 @secure()
 param sshPublicKey string
 
-@secure()
-param llmApiKey string
-
-param llmProvider string
 param allowedSshCidr string
 
 // ── Network Security Group ──────────────────────────────────────────
@@ -189,12 +185,17 @@ runcmd:
   - |
     cat > /home/${adminUsername}/openclaw/.env <<'ENVEOF'
     # OpenClaw Environment Configuration
-    # LLM API key and provider are configured post-deploy for security.
-    # Run: ./configure.sh to set them up.
+    # LLM: GitHub Copilot (configured post-deploy via `openclaw models auth login-github-copilot`)
     OPENCLAW_DATA_DIR=/mnt/openclaw-data/openclaw
     SIGNAL_CLI_DATA_DIR=/mnt/openclaw-data/signal-cli
     ENVEOF
   - chown -R ${adminUsername}:${adminUsername} /home/${adminUsername}/openclaw
+
+  # Install GitHub CLI (for Copilot auth)
+  - |
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    apt-get update && apt-get install -y gh
 
   # Install signal-cli (latest release)
   - |

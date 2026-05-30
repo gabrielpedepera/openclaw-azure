@@ -6,13 +6,6 @@ param location string = 'northeurope'
 @secure()
 param sshPublicKey string
 
-@secure()
-@description('API key for the LLM provider (e.g., Anthropic, OpenAI)')
-param llmApiKey string
-
-@description('LLM provider to use (anthropic, openai, etc.)')
-param llmProvider string = 'anthropic'
-
 @description('Your IP address for SSH access (CIDR notation, e.g., 203.0.113.10/32)')
 param allowedSshCidr string = '*'
 
@@ -31,8 +24,6 @@ module openclawVm './openclaw-vm.bicep' = {
     sshPublicKey: sshPublicKey
     vmName: 'openclaw-vm'
     adminUsername: 'gabrielpedepera'
-    llmApiKey: llmApiKey
-    llmProvider: llmProvider
     allowedSshCidr: allowedSshCidr
   }
 }
