@@ -192,6 +192,28 @@ runcmd:
     fs_setup: []
     CLOUDINIT
 
+  # Create systemd service to start OpenClaw after disk mount with correct permissions
+  - |
+    cat > /etc/systemd/system/openclaw.service <<'SYSTEMD'
+    [Unit]
+    Description=OpenClaw AI Assistant
+    After=docker.service mnt-openclaw\x2ddata.mount
+    Requires=docker.service mnt-openclaw\x2ddata.mount
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    WorkingDirectory=/home/${adminUsername}/openclaw
+    ExecStartPre=/bin/bash -c 'chown -R 1000:1000 /mnt/openclaw-data/openclaw && chmod -R 700 /mnt/openclaw-data/openclaw/agents/main/agent 2>/dev/null || true'
+    ExecStart=/usr/bin/docker compose up -d
+    ExecStop=/usr/bin/docker compose down
+
+    [Install]
+    WantedBy=multi-user.target
+    SYSTEMD
+  - systemctl daemon-reload
+  - systemctl enable openclaw.service
+
   # Write LLM config (populated post-deploy via SSH)
   - mkdir -p /home/${adminUsername}/openclaw
   - |
