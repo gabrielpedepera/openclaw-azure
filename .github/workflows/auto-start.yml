@@ -1,0 +1,30 @@
+name: Auto-Start OpenClaw VM
+
+on:
+  schedule:
+    # Every day at 07:00 UTC
+    - cron: '0 7 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  start-vm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Start VM
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az vm start -g rg-openclaw -n openclaw-vm
+            echo "✓ OpenClaw VM started"

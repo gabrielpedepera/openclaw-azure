@@ -13,8 +13,9 @@ Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a c
 | **Subtotal (infra)** | **~$21/mo** |
 | LLM: GitHub Copilot subscription | Included in your existing plan |
 | Auto-shutdown at 19:00 UTC | Saves ~60% on compute |
+| Auto-start at 07:00 UTC | Via GitHub Actions |
 
-> With auto-shutdown enabled, effective compute cost drops to ~$6–8/mo.
+> With auto-shutdown/start, the VM runs 12h/day (~$7.50/mo compute).
 
 ---
 
@@ -180,5 +181,24 @@ az group delete --name rg-openclaw --yes --no-wait
 - SSH restricted to your IP via NSG (`allowedSshCidr`)
 - LLM powered by GitHub Copilot (no API keys to manage)
 - OpenClaw web UI bound to `127.0.0.1` only (no public exposure)
-- Data disk persists separately from VM lifecycle
+- Data disk persists separately from VM lifecycle (mounted by label, survives reboots)
+
+## ⏰ Auto-Start / Auto-Shutdown
+
+| Event | Time | Mechanism |
+|---|---|---|
+| **Start** | 07:00 UTC daily | GitHub Actions (`.github/workflows/auto-start.yml`) |
+| **Shutdown** | 19:00 UTC daily | Azure DevTest Lab schedule |
+| **Manual start** | Anytime | `az vm start -g rg-openclaw -n openclaw-vm` |
+
+### GitHub Actions Setup (required for auto-start)
+
+1. Create an Azure AD App Registration with federated credentials for GitHub Actions
+2. Assign it **Virtual Machine Contributor** role on the `rg-openclaw` resource group
+3. Add these repository secrets:
+   - `AZURE_CLIENT_ID`
+   - `AZURE_TENANT_ID`
+   - `AZURE_SUBSCRIPTION_ID`
+
+See [Azure Login with OIDC](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure) for setup details.
 - Agent auth directory must have `700` permissions (not world-readable)

@@ -128,6 +128,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = {
 }
 
 // ── Auto-Shutdown (19:00 UTC) ───────────────────────────────────────
+// Auto-start is handled by GitHub Actions (.github/workflows/auto-start.yml)
 resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = {
   name: 'shutdown-computevm-${vmName}'
   location: location
@@ -167,7 +168,7 @@ fs_setup:
     overwrite: false
 
 mounts:
-  - ["/dev/disk/azure/scsi1/lun0-part1", "/mnt/openclaw-data", "ext4", "defaults,nofail", "0", "2"]
+  - ["LABEL=openclawdata", "/mnt/openclaw-data", "ext4", "defaults,nofail", "0", "2"]
 
 runcmd:
   # Enable Docker
@@ -178,6 +179,10 @@ runcmd:
   # Create OpenClaw data directories on persistent disk
   - mkdir -p /mnt/openclaw-data/openclaw
   - chown -R 1000:1000 /mnt/openclaw-data
+
+  # Fix fstab to use LABEL instead of device path (survives reboots)
+  - |
+    sed -i 's|/dev/disk/azure/scsi1/lun0-part1|LABEL=openclawdata|g' /etc/fstab
 
   # Write LLM config (populated post-deploy via SSH)
   - mkdir -p /home/${adminUsername}/openclaw
