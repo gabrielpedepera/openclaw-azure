@@ -184,6 +184,13 @@ runcmd:
   - |
     sed -i 's|/dev/disk/azure/scsi1/lun0-part1|LABEL=openclawdata|g' /etc/fstab
 
+  # Prevent cloud-init from reformatting the data disk on subsequent boots
+  - |
+    cat > /etc/cloud/cloud.cfg.d/99-disable-disk-setup.cfg <<'CLOUDINIT'
+    disk_setup: {}
+    fs_setup: []
+    CLOUDINIT
+
   # Write LLM config (populated post-deploy via SSH)
   - mkdir -p /home/${adminUsername}/openclaw
   - |
