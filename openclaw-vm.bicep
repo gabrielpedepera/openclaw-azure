@@ -168,7 +168,7 @@ fs_setup:
     overwrite: false
 
 mounts:
-  - ["LABEL=openclawdata", "/mnt/openclaw-data", "ext4", "defaults,nofail", "0", "2"]
+  - ["LABEL=openclawdata", "/data/openclaw-data", "ext4", "defaults,nofail", "0", "2"]
 
 runcmd:
   # Enable Docker
@@ -177,34 +177,36 @@ runcmd:
   - usermod -aG docker ${adminUsername}
 
   # Create OpenClaw data directories on persistent disk
-  - mkdir -p /mnt/openclaw-data/openclaw
-  - chown -R 1000:1000 /mnt/openclaw-data
-  - chmod 700 /mnt/openclaw-data/openclaw
+  - mkdir -p /data/openclaw-data/openclaw
+  - chown -R 1000:1000 /data/openclaw-data
+  - chmod 700 /data/openclaw-data/openclaw
 
-  # Fix fstab to use LABEL instead of device path (survives reboots)
-  - |
-    sed -i 's|/dev/disk/azure/scsi1/lun0-part1|LABEL=openclawdata|g' /etc/fstab
-
-  # Prevent cloud-init from reformatting the data disk on subsequent boots
+  # Prevent cloud-init from reformatting/remounting data disk on subsequent boots
   - |
     cat > /etc/cloud/cloud.cfg.d/99-disable-disk-setup.cfg <<'CLOUDINIT'
     disk_setup: {}
     fs_setup: []
+    mounts: []
     CLOUDINIT
+
+  # Ensure fstab uses LABEL (cloud-init may resolve to device path)
+  - |
+    sed -i '/openclaw-data/d' /etc/fstab
+    echo 'LABEL=openclawdata /data/openclaw-data ext4 defaults,nofail 0 2' >> /etc/fstab
 
   # Create systemd service to start OpenClaw after disk mount with correct permissions
   - |
     cat > /etc/systemd/system/openclaw.service <<'SYSTEMD'
     [Unit]
     Description=OpenClaw AI Assistant
-    After=docker.service mnt-openclaw\x2ddata.mount
-    Requires=docker.service mnt-openclaw\x2ddata.mount
+    After=docker.service data-openclaw\x2ddata.mount
+    Requires=docker.service data-openclaw\x2ddata.mount
 
     [Service]
     Type=oneshot
     RemainAfterExit=yes
     WorkingDirectory=/home/${adminUsername}/openclaw
-    ExecStartPre=/bin/bash -c 'chown -R 1000:1000 /mnt/openclaw-data/openclaw && chmod -R 700 /mnt/openclaw-data/openclaw/agents/main/agent 2>/dev/null || true'
+    ExecStartPre=/bin/bash -c 'chown -R 1000:1000 /data/openclaw-data/openclaw && chmod -R 700 /data/openclaw-data/openclaw/agents/main/agent 2>/dev/null || true'
     ExecStart=/usr/bin/docker compose up -d
     ExecStop=/usr/bin/docker compose down
 
@@ -220,7 +222,7 @@ runcmd:
     cat > /home/${adminUsername}/openclaw/.env <<'ENVEOF'
     # OpenClaw Environment Configuration
     # LLM: GitHub Copilot (configured post-deploy via `openclaw models auth login-github-copilot`)
-    OPENCLAW_DATA_DIR=/mnt/openclaw-data/openclaw
+    OPENCLAW_DATA_DIR=/data/openclaw-data/openclaw
     ENVEOF
   - chown -R ${adminUsername}:${adminUsername} /home/${adminUsername}/openclaw
 
