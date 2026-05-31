@@ -179,6 +179,7 @@ runcmd:
   # Create OpenClaw data directories on persistent disk
   - mkdir -p /mnt/openclaw-data/openclaw
   - chown -R 1000:1000 /mnt/openclaw-data
+  - chmod 700 /mnt/openclaw-data/openclaw
 
   # Fix fstab to use LABEL instead of device path (survives reboots)
   - |
