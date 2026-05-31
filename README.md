@@ -12,10 +12,10 @@ Infrastructure as Code (Bicep) to deploy [OpenClaw](https://openclaw.ai/) on a c
 | Public IP (Standard, static) | ~$3.60/mo |
 | **Subtotal (infra)** | **~$21/mo** |
 | LLM: GitHub Copilot subscription | Included in your existing plan |
-| Auto-shutdown at 19:00 UTC | Saves ~60% on compute |
-| Auto-start at 07:00 UTC | Via GitHub Actions |
+| Auto-shutdown at 21:30 WEST (20:30 UTC) | Saves ~50% on compute |
+| Auto-start at 08:30 WEST (07:30 UTC) | Via GitHub Actions |
 
-> With auto-shutdown/start, the VM runs 12h/day (~$7.50/mo compute).
+> With auto-shutdown/start, the VM runs ~13h/day (~$8.50/mo compute).
 
 ---
 
@@ -58,7 +58,7 @@ Add to `~/.ssh/config`:
 ```text
 Host openclaw
     HostName openclaw-vm.northeurope.cloudapp.azure.com
-    User gabrielpedepera
+    User <your-azure-username>
     IdentityFile ~/.ssh/openclaw-key
 ```
 
@@ -77,18 +77,7 @@ This will:
 - Run initial setup (config, workspace, sessions)
 - Generate a gateway token and start the container
 
-### 5. Fix Data Disk Permissions
-
-The Azure data disk mounts with permissive defaults. Fix permissions so OpenClaw's auth store works correctly:
-
-```bash
-ssh openclaw
-sudo chown -R 1000:1000 /mnt/openclaw-data/openclaw
-sudo chmod -R 700 /mnt/openclaw-data/openclaw/agents
-sudo docker compose -f ~/openclaw/docker-compose.yml restart
-```
-
-### 6. Authenticate GitHub Copilot as LLM
+### 5. Authenticate GitHub Copilot as LLM
 
 ```bash
 ssh openclaw
@@ -97,12 +86,17 @@ sudo docker exec -it openclaw openclaw models auth login-github-copilot
 
 Follow the browser-based device login flow to link your GitHub Copilot subscription.
 
-### 7. Add Telegram Channel
+> **Important:** After auth, restart the container so the gateway picks up the credentials:
+> ```bash
+> sudo docker restart openclaw
+> ```
+
+### 6. Add Telegram Channel
 
 ```bash
 ssh openclaw
 sudo docker exec openclaw openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
-sudo docker compose -f ~/openclaw/docker-compose.yml restart
+sudo docker restart openclaw
 ```
 
 Then open Telegram, message your bot, and **approve the pairing code** it sends you:
@@ -152,8 +146,6 @@ ssh openclaw "sudo docker ps"
 ssh openclaw "sudo docker logs openclaw --tail 50"
 ```
 
-> The VM auto-stops at **19:00 UTC** daily. Start it again each morning.
-
 ---
 
 ## 🗑 Cleanup
@@ -173,22 +165,27 @@ az group delete --name rg-openclaw --yes --no-wait
 | File | Purpose |
 |---|---|
 | `main.bicep` | Subscription-level orchestrator (RG + VM module) |
-| `openclaw-vm.bicep` | VM, networking, cloud-init, auto-shutdown |
+| `openclaw-vm.bicep` | VM, networking, cloud-init, auto-shutdown, systemd service |
 | `configure.sh` | Post-deploy setup (Docker, OpenClaw init, gateway token) |
+| `.github/workflows/auto-start.yml` | Daily VM auto-start via GitHub Actions |
+
+---
 
 ## 🔒 Security Notes
 
 - SSH restricted to your IP via NSG (`allowedSshCidr`)
 - LLM powered by GitHub Copilot (no API keys to manage)
 - OpenClaw web UI bound to `127.0.0.1` only (no public exposure)
-- Data disk persists separately from VM lifecycle (mounted by label, survives reboots)
+- Agent auth directory requires `700` permissions (enforced by systemd service on boot)
+
+---
 
 ## ⏰ Auto-Start / Auto-Shutdown
 
 | Event | Time | Mechanism |
 |---|---|---|
-| **Start** | 07:00 UTC daily | GitHub Actions (`.github/workflows/auto-start.yml`) |
-| **Shutdown** | 19:00 UTC daily | Azure DevTest Lab schedule |
+| **Start** | 08:30 WEST / 07:30 UTC daily | GitHub Actions (`.github/workflows/auto-start.yml`) |
+| **Shutdown** | 21:30 WEST / 20:30 UTC daily | Azure DevTest Lab schedule |
 | **Manual start** | Anytime | `az vm start -g rg-openclaw -n openclaw-vm` |
 
 ### GitHub Actions Setup (required for auto-start)
@@ -201,4 +198,48 @@ az group delete --name rg-openclaw --yes --no-wait
    - `AZURE_SUBSCRIPTION_ID`
 
 See [Azure Login with OIDC](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure) for setup details.
-- Agent auth directory must have `700` permissions (not world-readable)
+
+---
+
+## 💾 Data Persistence
+
+OpenClaw data (config, auth credentials, memory, Telegram state) is stored on a **persistent Azure data disk** that survives VM deallocate/start cycles.
+
+### How it works
+
+- A 16 GB data disk is mounted at **`/data/openclaw-data`** using filesystem label (`LABEL=openclawdata`)
+- The Docker container bind-mounts `/data/openclaw-data/openclaw` → `/home/node/.openclaw`
+- A **systemd service** (`openclaw.service`) ensures correct boot ordering:
+  1. Waits for the data disk to be mounted
+  2. Fixes file ownership and permissions (`700` on auth directory)
+  3. Starts the Docker container via `docker compose up`
+
+### Key design decisions
+
+| Problem | Solution |
+|---|---|
+| Azure reassigns disk device paths after deallocation | fstab uses `LABEL=openclawdata` instead of device paths |
+| cloud-init can reformat the data disk on reboot | Override config disables `disk_setup`, `fs_setup`, and `mounts` modules on subsequent boots |
+| Azure ephemeral disk at `/mnt` conflicts with submounts | Data disk mounted at `/data/openclaw-data` (outside `/mnt`) |
+| OpenClaw rejects `777` permissions on auth directory | systemd `ExecStartPre` sets `700` before container starts |
+| Container starts before disk is mounted | systemd `Requires=data-openclaw\x2ddata.mount` enforces ordering |
+
+### Troubleshooting
+
+If the bot stops responding after a reboot:
+
+```bash
+# Check if data disk is mounted
+ssh openclaw "mount | grep openclaw-data"
+
+# Check systemd service
+ssh openclaw "systemctl status openclaw.service"
+
+# Check container logs
+ssh openclaw "sudo docker logs openclaw --tail 20"
+
+# If auth is lost (disk was reformatted), re-authenticate:
+ssh openclaw
+sudo docker exec -it openclaw openclaw models auth login-github-copilot
+sudo docker restart openclaw
+```

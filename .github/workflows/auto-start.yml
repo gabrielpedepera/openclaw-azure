@@ -3,7 +3,7 @@ name: Auto-Start OpenClaw VM
 on:
   schedule:
     # Every day at 07:00 UTC
-    - cron: '30 8 * * *'
+    - cron: '30 7 * * *'
   workflow_dispatch: # Allow manual trigger
 
 permissions:

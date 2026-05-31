@@ -127,7 +127,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = {
   }
 }
 
-// ── Auto-Shutdown (21:30 UTC) ───────────────────────────────────────
+// ── Auto-Shutdown (20:30 UTC / 21:30 WET) ────────────────────────────
 // Auto-start is handled by GitHub Actions (.github/workflows/auto-start.yml)
 resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = {
   name: 'shutdown-computevm-${vmName}'
@@ -135,7 +135,7 @@ resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = {
   properties: {
     status: 'Enabled'
     taskType: 'ComputeVmShutdownTask'
-    dailyRecurrence: { time: '2130' }
+    dailyRecurrence: { time: '2030' }
     timeZoneId: 'UTC'
     targetResourceId: vm.id
     notificationSettings: { status: 'Disabled' }
